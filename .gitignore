@@ -31,7 +31,9 @@ wheels/
 node_modules/
 .npm
 frontend/dist/
+dist/
 .vite/
+*.tsbuildinfo
 
 # IDE / OS
 .idea/
