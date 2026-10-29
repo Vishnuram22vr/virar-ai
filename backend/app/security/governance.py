@@ -24,7 +24,7 @@ def get_current_user(
     x_user_id: Optional[str] = Header(None, alias="X-User-Id")
 ) -> DevUser:
     """
-    Development authentication & authorization dependency.
+    Development and production authentication & authorization dependency.
     Validates API key and user role. In dev mode, allows standard admin access.
     """
     if settings.DEV_AUTH_MODE:
@@ -45,11 +45,21 @@ def get_current_user(
     user_id = x_user_id or "auth-user"
     return DevUser(user_id=user_id, username=f"user_{user_id}", role="admin")
 
+def enforce_reviewer_role(user: DevUser):
+    """
+    Enforces that reviewer has authorized role to decide protected actions.
+    """
+    if user.role not in ["admin", "reviewer", "lead"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: User lacks authorization role to review actions."
+        )
+
 def enforce_not_self_approval(requester_id: str, reviewer_id: str):
     """
     Enforces governance rule: the requesting agent or actor cannot approve its own action.
     """
-    if requester_id and reviewer_id and requester_id == reviewer_id:
+    if requester_id and reviewer_id and requester_id.strip().lower() == reviewer_id.strip().lower():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Governance Policy Violation: Requesting agent or user cannot approve their own action."

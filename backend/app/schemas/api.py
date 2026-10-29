@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
 class ToolCallRequest(BaseModel):
@@ -13,6 +13,8 @@ class AgentRunCreate(BaseModel):
     is_demo: Optional[bool] = False
 
 class TraceEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     run_id: str
     sequence_number: int
@@ -27,10 +29,9 @@ class TraceEventResponse(BaseModel):
     error_details: Optional[str] = None
     metadata_payload: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
-
 class AgentRunResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     correlation_id: str
     agent_name: str
@@ -54,14 +55,13 @@ class AgentRunResponse(BaseModel):
     is_demo: bool
     trace_events: Optional[List[TraceEventResponse]] = None
 
-    class Config:
-        from_attributes = True
-
 class ApprovalDecisionRequest(BaseModel):
     decision: str = Field(..., description="'approved' or 'rejected'")
     reason: Optional[str] = Field(None, description="Reason for decision")
 
 class ApprovalResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     run_id: str
     tool_name: str
@@ -75,9 +75,6 @@ class ApprovalResponse(BaseModel):
     requested_at: datetime
     decided_at: Optional[datetime] = None
     execution_outcome: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 class ToolMetadataResponse(BaseModel):
     name: str

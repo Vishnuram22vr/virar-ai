@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, Play, CheckCircle2, ShieldCheck, 
-  Settings as SettingsIcon, Terminal, RefreshCw, Cpu, Database
+  Settings as SettingsIcon, Terminal, RefreshCw, Cpu, Database, AlertCircle, Info
 } from 'lucide-react';
 import { 
   fetchMetrics, fetchRuns, fetchRunTraces, createRun, fetchTools, 
@@ -19,8 +19,9 @@ export function App() {
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [evalRuns, setEvalRuns] = useState<EvaluationRun[]>([]);
   const [loading, setLoading] = useState(false);
+  const [tracesLoading, setTracesLoading] = useState(false);
   const [taskInput, setTaskInput] = useState('');
-  const [notification, setNotification] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Load Initial Data
   const refreshAll = async () => {
@@ -49,9 +50,9 @@ export function App() {
     refreshAll();
   }, []);
 
-  const showNotification = (msg: string) => {
-    setNotification(msg);
-    setTimeout(() => setNotification(null), 4000);
+  const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 5000);
   };
 
   const handleCreateRun = async (e: React.FormEvent) => {
@@ -61,14 +62,16 @@ export function App() {
     try {
       const newRun = await createRun(taskInput);
       setTaskInput('');
-      showNotification(`Run #${newRun.id.slice(0, 8)} started!`);
+      showNotification(`Run #${newRun.id.slice(0, 8)} created with status: ${newRun.status}`, 'success');
       await refreshAll();
       setSelectedRun(newRun);
+      setTracesLoading(true);
       const traces = await fetchRunTraces(newRun.id);
       setRunTraces(traces);
+      setTracesLoading(false);
       setActiveTab('runs');
     } catch (err: any) {
-      alert(`Error starting run: ${err.message}`);
+      showNotification(`Execution error: ${err.message}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -76,22 +79,25 @@ export function App() {
 
   const handleSelectRun = async (run: AgentRun) => {
     setSelectedRun(run);
+    setTracesLoading(true);
     try {
       const traces = await fetchRunTraces(run.id);
       setRunTraces(traces);
     } catch (err: any) {
-      console.error(err);
+      showNotification(`Failed to load traces: ${err.message}`, 'error');
+    } finally {
+      setTracesLoading(false);
     }
   };
 
   const handleApprovalDecision = async (id: string, decision: 'approved' | 'rejected') => {
     setLoading(true);
     try {
-      await decideApproval(id, decision, `Action ${decision} via Virar AI Governance Portal`);
-      showNotification(`Approval #${id.slice(0, 8)} marked as ${decision}.`);
+      await decideApproval(id, decision, `Action ${decision} by authorized engineering reviewer`);
+      showNotification(`Approval #${id.slice(0, 8)} set to ${decision}. Execution outcome recorded.`, 'success');
       await refreshAll();
     } catch (err: any) {
-      alert(err.message);
+      showNotification(err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -100,12 +106,12 @@ export function App() {
   const handleTriggerEval = async () => {
     setLoading(true);
     try {
-      showNotification('Running deterministic 20-case evaluation suite...');
+      showNotification('Executing deterministic 20-case evaluation suite...', 'info');
       const evalResult = await triggerEvalRun('1.0.0');
-      showNotification(`Evaluation complete! Pass rate: ${evalResult.pass_rate}%`);
+      showNotification(`Evaluation complete! Pass rate: ${evalResult.pass_rate}% (${evalResult.passed_cases}/${evalResult.total_cases} cases passed)`, 'success');
       await refreshAll();
     } catch (err: any) {
-      alert(`Evaluation failed: ${err.message}`);
+      showNotification(`Evaluation failed: ${err.message}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -114,11 +120,11 @@ export function App() {
   const handleSeedDemo = async () => {
     setLoading(true);
     try {
-      await seedDemoData();
-      showNotification('Demo data and baseline evaluation benchmarks seeded!');
+      const res = await seedDemoData();
+      showNotification(res.message || 'Demo data successfully synchronized!', res.seeded ? 'success' : 'info');
       await refreshAll();
     } catch (err: any) {
-      alert(`Failed to seed demo data: ${err.message}`);
+      showNotification(`Failed to seed demo data: ${err.message}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -176,8 +182,9 @@ export function App() {
         </nav>
 
         <div style={{ marginTop: 'auto', borderTop: '1px solid #233154', paddingTop: '16px' }}>
-          <button className="btn btn-secondary" style={{ width: '100%' }} onClick={handleSeedDemo}>
-            <Database size={16} /> Seed Demo Data
+          <button className="btn btn-secondary" style={{ width: '100%' }} onClick={handleSeedDemo} disabled={loading}>
+            {loading ? <span className="loading-spinner" /> : <Database size={16} />} 
+            <span>{loading ? 'Processing...' : 'Seed Demo Data'}</span>
           </button>
         </div>
       </aside>
@@ -186,9 +193,9 @@ export function App() {
       <main className="content-area">
         {notification && (
           <div style={{ 
-            background: '#1e293b', 
-            border: '1px solid #3b82f6', 
-            color: '#60a5fa', 
+            background: notification.type === 'error' ? 'rgba(239, 68, 68, 0.15)' : notification.type === 'info' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(16, 185, 129, 0.15)', 
+            border: `1px solid ${notification.type === 'error' ? '#ef4444' : notification.type === 'info' ? '#3b82f6' : '#10b981'}`, 
+            color: notification.type === 'error' ? '#f87171' : notification.type === 'info' ? '#60a5fa' : '#34d399', 
             padding: '12px 18px', 
             borderRadius: '8px', 
             marginBottom: '20px',
@@ -196,7 +203,8 @@ export function App() {
             alignItems: 'center',
             gap: '10px'
           }}>
-            <CheckCircle2 size={18} /> {notification}
+            {notification.type === 'error' ? <AlertCircle size={18} /> : notification.type === 'info' ? <Info size={18} /> : <CheckCircle2 size={18} />}
+            <span>{notification.message}</span>
           </div>
         )}
 
@@ -208,8 +216,9 @@ export function App() {
                 <h1 className="page-title">Platform Overview</h1>
                 <p className="page-desc">Production observability metrics, latency, token spend, and reliability telemetry.</p>
               </div>
-              <button className="btn btn-secondary" onClick={refreshAll}>
-                <RefreshCw size={16} /> Refresh
+              <button className="btn btn-secondary" onClick={refreshAll} disabled={loading}>
+                {loading ? <span className="loading-spinner" /> : <RefreshCw size={16} />}
+                <span>Refresh</span>
               </button>
             </div>
 
@@ -217,12 +226,16 @@ export function App() {
               <div className="stat-card">
                 <div className="stat-label">Total Executions</div>
                 <div className="stat-value">{metrics?.total_runs ?? 0}</div>
-                <div className="stat-subtext">{metrics?.waiting_approval_runs ?? 0} pending approvals</div>
+                <div className="stat-subtext" style={{ color: '#fbbf24' }}>
+                  {metrics?.waiting_approval_runs ?? 0} pending review
+                </div>
               </div>
               <div className="stat-card">
-                <div className="stat-label">Success Rate</div>
+                <div className="stat-label">Terminal Success Rate</div>
                 <div className="stat-value">{metrics?.success_rate ?? 0}%</div>
-                <div className="stat-subtext">{metrics?.successful_runs ?? 0} passed / {metrics?.failed_runs ?? 0} failed</div>
+                <div className="stat-subtext" style={{ color: '#34d399' }}>
+                  {metrics?.successful_runs ?? 0} completed / {metrics?.failed_runs ?? 0} failed
+                </div>
               </div>
               <div className="stat-card">
                 <div className="stat-label">Average Latency</div>
@@ -255,8 +268,9 @@ export function App() {
                   value={taskInput}
                   onChange={(e) => setTaskInput(e.target.value)}
                 />
-                <button type="submit" className="btn btn-primary" disabled={loading}>
-                  <Play size={16} /> Run Agent Task
+                <button type="submit" className="btn btn-primary" disabled={loading || !taskInput.trim()}>
+                  {loading ? <span className="loading-spinner" /> : <Play size={16} />}
+                  <span>Run Agent Task</span>
                 </button>
               </form>
             </div>
@@ -280,7 +294,7 @@ export function App() {
                   <tbody>
                     {metrics.recent_failures.map((f) => (
                       <tr key={f.id}>
-                        <td>{new Date(f.started_at).toLocaleTimeString()}</td>
+                        <td>{f.started_at ? new Date(f.started_at).toLocaleTimeString() : 'N/A'}</td>
                         <td style={{ fontWeight: 500 }}>{f.task_input}</td>
                         <td><span className="badge badge-danger">{f.error_category || 'general'}</span></td>
                         <td style={{ color: '#ef4444' }}>{f.error_message || 'N/A'}</td>
@@ -289,7 +303,11 @@ export function App() {
                   </tbody>
                 </table>
               ) : (
-                <p style={{ color: 'var(--text-muted)' }}>No failures recorded. All agent runs succeeded!</p>
+                <div className="empty-state">
+                  <CheckCircle2 size={32} color="#10b981" className="empty-state-icon" />
+                  <div className="empty-state-title">No Failures Recorded</div>
+                  <div className="empty-state-desc">All evaluated executions succeeded without raising unhandled errors.</div>
+                </div>
               )}
             </div>
           </div>
@@ -303,50 +321,63 @@ export function App() {
                 <h1 className="page-title">Agent Execution Traces</h1>
                 <p className="page-desc">Chronological trace spans, validated tool parameters, duration, and error diagnostics.</p>
               </div>
-              <button className="btn btn-secondary" onClick={refreshAll}>
-                <RefreshCw size={16} /> Refresh
+              <button className="btn btn-secondary" onClick={refreshAll} disabled={loading}>
+                {loading ? <span className="loading-spinner" /> : <RefreshCw size={16} />}
+                <span>Refresh</span>
               </button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: selectedRun ? '1fr 1fr' : '1fr', gap: '24px' }}>
               <div className="card">
                 <div className="card-title">Execution Runs ({runs.length})</div>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Status</th>
-                      <th>Task Prompt</th>
-                      <th>Duration</th>
-                      <th>Tokens</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {runs.map((r) => (
-                      <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => handleSelectRun(r)}>
-                        <td>
-                          <span className={`badge ${
-                            r.status === 'completed' ? 'badge-success' : 
-                            r.status === 'failed' ? 'badge-danger' : 
-                            r.status === 'waiting_approval' ? 'badge-warning' : 'badge-info'
-                          }`}>
-                            {r.status}
-                          </span>
-                        </td>
-                        <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {r.task_input}
-                        </td>
-                        <td>{r.duration_ms ? `${Math.round(r.duration_ms)} ms` : '-'}</td>
-                        <td>{r.total_tokens}</td>
-                        <td>
-                          <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleSelectRun(r)}>
-                            Inspect
-                          </button>
-                        </td>
+                {runs.length === 0 ? (
+                  <div className="empty-state">
+                    <Terminal size={32} className="empty-state-icon" />
+                    <div className="empty-state-title">No Runs Recorded</div>
+                    <div className="empty-state-desc">Dispatch a new prompt from the Overview tab or click "Seed Demo Data" to populate historical executions.</div>
+                  </div>
+                ) : (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Status</th>
+                        <th>Task Prompt</th>
+                        <th>Duration</th>
+                        <th>Tokens</th>
+                        <th>Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {runs.map((r) => (
+                        <tr 
+                          key={r.id} 
+                          style={{ cursor: 'pointer', backgroundColor: selectedRun?.id === r.id ? 'rgba(59, 130, 246, 0.08)' : 'transparent' }} 
+                          onClick={() => handleSelectRun(r)}
+                        >
+                          <td>
+                            <span className={`badge ${
+                              r.status === 'completed' ? 'badge-success' : 
+                              r.status === 'failed' ? 'badge-danger' : 
+                              r.status === 'waiting_approval' ? 'badge-warning' : 'badge-info'
+                            }`}>
+                              {r.status}
+                            </span>
+                          </td>
+                          <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {r.task_input}
+                          </td>
+                          <td>{r.duration_ms ? `${Math.round(r.duration_ms)} ms` : '-'}</td>
+                          <td>{r.total_tokens}</td>
+                          <td>
+                            <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={(e) => { e.stopPropagation(); handleSelectRun(r); }}>
+                              Inspect
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
 
               {selectedRun && (
@@ -358,33 +389,48 @@ export function App() {
                   <div style={{ marginBottom: '16px', fontSize: '0.875rem' }}>
                     <p><strong>Goal:</strong> {selectedRun.task_input}</p>
                     <p><strong>Agent Version:</strong> {selectedRun.agent_version} | <strong>Mode:</strong> {selectedRun.execution_mode}</p>
-                    <p><strong>Status:</strong> <span className="badge badge-info">{selectedRun.status}</span></p>
-                    {selectedRun.final_output && <p><strong>Result:</strong> {selectedRun.final_output}</p>}
-                    {selectedRun.error_message && <p style={{ color: '#ef4444' }}><strong>Error:</strong> {selectedRun.error_message}</p>}
+                    <p><strong>Status:</strong> <span className={`badge ${
+                      selectedRun.status === 'completed' ? 'badge-success' : 
+                      selectedRun.status === 'failed' ? 'badge-danger' : 
+                      selectedRun.status === 'waiting_approval' ? 'badge-warning' : 'badge-info'
+                    }`}>{selectedRun.status}</span></p>
+                    {selectedRun.final_output && <p style={{ marginTop: '4px' }}><strong>Result:</strong> {selectedRun.final_output}</p>}
+                    {selectedRun.error_message && <p style={{ color: '#ef4444', marginTop: '4px' }}><strong>Error ({selectedRun.error_category}):</strong> {selectedRun.error_message}</p>}
                   </div>
 
-                  <h4 style={{ fontSize: '0.95rem', marginBottom: '8px' }}>Execution Trace Spans ({runTraces.length})</h4>
-                  <div className="trace-timeline">
-                    {runTraces.map((t) => (
-                      <div key={t.id} className="trace-step">
-                        <div className="trace-header">
-                          <span className="badge badge-purple">{t.event_type}</span>
-                          <span>{t.tool_name ? `Tool: ${t.tool_name}` : ''}</span>
-                          <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginLeft: 'auto' }}>
-                            {t.step_duration_ms ? `${t.step_duration_ms.toFixed(1)}ms` : ''}
-                          </span>
-                        </div>
-                        {(t.tool_arguments || t.tool_result || t.metadata_payload || t.error_details) && (
-                          <div className="trace-body">
-                            {t.tool_arguments && <div><strong>Args:</strong> {JSON.stringify(t.tool_arguments)}</div>}
-                            {t.tool_result && <div><strong>Result:</strong> {JSON.stringify(t.tool_result)}</div>}
-                            {t.error_details && <div style={{ color: '#ef4444' }}><strong>Error:</strong> {t.error_details}</div>}
-                            {t.metadata_payload && <div><strong>Metadata:</strong> {JSON.stringify(t.metadata_payload)}</div>}
+                  <h4 style={{ fontSize: '0.95rem', marginBottom: '8px' }}>
+                    Execution Trace Spans ({runTraces.length})
+                    {tracesLoading && <span className="loading-spinner" style={{ marginLeft: '10px' }} />}
+                  </h4>
+                  
+                  {runTraces.length === 0 && !tracesLoading ? (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No trace spans recorded for this run.</p>
+                  ) : (
+                    <div className="trace-timeline">
+                      {runTraces.map((t) => {
+                        const isFailure = t.status === 'failure' || t.event_type === 'failure';
+                        return (
+                          <div key={t.id} className={`trace-step ${isFailure ? 'trace-step-failure' : ''}`}>
+                            <div className="trace-header">
+                              <span className={`badge ${isFailure ? 'badge-danger' : 'badge-purple'}`}>{t.event_type}</span>
+                              {t.tool_name && <span style={{ fontWeight: 600 }}>Tool: {t.tool_name}</span>}
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginLeft: 'auto' }}>
+                                {t.step_duration_ms ? `${t.step_duration_ms.toFixed(1)}ms` : ''}
+                              </span>
+                            </div>
+                            {(t.tool_arguments || t.tool_result || t.metadata_payload || t.error_details) && (
+                              <div className="trace-body">
+                                {t.tool_arguments && <div><strong>Arguments:</strong> {JSON.stringify(t.tool_arguments, null, 2)}</div>}
+                                {t.tool_result && <div style={{ color: '#34d399', marginTop: '4px' }}><strong>Result:</strong> {JSON.stringify(t.tool_result, null, 2)}</div>}
+                                {t.error_details && <div style={{ color: '#ef4444', marginTop: '4px' }}><strong>Error Details:</strong> {t.error_details}</div>}
+                                {t.metadata_payload && <div style={{ color: 'var(--text-muted)', marginTop: '4px' }}><strong>Metadata:</strong> {JSON.stringify(t.metadata_payload, null, 2)}</div>}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -400,40 +446,49 @@ export function App() {
                 <p className="page-desc">20-case test suite verifying normal behavior, boundary arithmetic, permissions, unknown tools, and failures.</p>
               </div>
               <button className="btn btn-primary" onClick={handleTriggerEval} disabled={loading}>
-                <Play size={16} /> Run Evaluation Suite
+                {loading ? <span className="loading-spinner" /> : <Play size={16} />}
+                <span>Run Evaluation Suite</span>
               </button>
             </div>
 
             <div className="card">
               <div className="card-title">Evaluation Runs History</div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Run Label</th>
-                    <th>Agent Version</th>
-                    <th>Pass Rate</th>
-                    <th>Passed / Total</th>
-                    <th>Duration</th>
-                    <th>Executed At</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {evalRuns.map((e) => (
-                    <tr key={e.id}>
-                      <td style={{ fontWeight: 600 }}>{e.run_label || 'Evaluation Run'}</td>
-                      <td><span className="badge badge-purple">v{e.agent_version}</span></td>
-                      <td>
-                        <span className={`badge ${e.pass_rate >= 90 ? 'badge-success' : 'badge-danger'}`}>
-                          {e.pass_rate}%
-                        </span>
-                      </td>
-                      <td>{e.passed_cases} / {e.total_cases}</td>
-                      <td>{Math.round(e.duration_ms)} ms</td>
-                      <td>{new Date(e.started_at).toLocaleString()}</td>
+              {evalRuns.length === 0 ? (
+                <div className="empty-state">
+                  <CheckCircle2 size={32} className="empty-state-icon" />
+                  <div className="empty-state-title">No Evaluation Suites Executed</div>
+                  <div className="empty-state-desc">Click "Run Evaluation Suite" to benchmark agent precision, tool boundary checking, and governance rules.</div>
+                </div>
+              ) : (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Run Label</th>
+                      <th>Agent Version</th>
+                      <th>Pass Rate</th>
+                      <th>Passed / Total</th>
+                      <th>Duration</th>
+                      <th>Executed At</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {evalRuns.map((e) => (
+                      <tr key={e.id}>
+                        <td style={{ fontWeight: 600 }}>{e.run_label || 'Evaluation Run'}</td>
+                        <td><span className="badge badge-purple">v{e.agent_version}</span></td>
+                        <td>
+                          <span className={`badge ${e.pass_rate >= 90 ? 'badge-success' : 'badge-danger'}`}>
+                            {e.pass_rate}%
+                          </span>
+                        </td>
+                        <td>{e.passed_cases} / {e.total_cases}</td>
+                        <td>{Math.round(e.duration_ms)} ms</td>
+                        <td>{new Date(e.started_at).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
 
             {/* Most Recent Per-Case Breakdown */}
@@ -523,7 +578,11 @@ export function App() {
             <div className="card">
               <div className="card-title">Approval Requests ({approvals.length})</div>
               {approvals.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)' }}>No approval requests in the pipeline.</p>
+                <div className="empty-state">
+                  <ShieldCheck size={32} color="#60a5fa" className="empty-state-icon" />
+                  <div className="empty-state-title">No Approvals in Pipeline</div>
+                  <div className="empty-state-desc">When an agent requests a protected action like ticket creation or server mutation, it will be safely quarantined here for authorized sign-off.</div>
+                </div>
               ) : (
                 <table>
                   <thead>
@@ -567,6 +626,7 @@ export function App() {
                                 className="btn btn-success" 
                                 style={{ padding: '4px 10px', fontSize: '0.75rem' }}
                                 onClick={() => handleApprovalDecision(a.id, 'approved')}
+                                disabled={loading}
                               >
                                 Approve
                               </button>
@@ -574,6 +634,7 @@ export function App() {
                                 className="btn btn-danger" 
                                 style={{ padding: '4px 10px', fontSize: '0.75rem' }}
                                 onClick={() => handleApprovalDecision(a.id, 'rejected')}
+                                disabled={loading}
                               >
                                 Reject
                               </button>

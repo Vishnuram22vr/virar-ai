@@ -13,7 +13,7 @@ from app.schemas.api import (
 from app.agent.runner import AgentExecutionEngine
 from app.tools.base import registry
 from app.evaluations.runner import EvaluationRunner
-from app.security.governance import get_current_user, DevUser, enforce_not_self_approval
+from app.security.governance import get_current_user, DevUser, enforce_not_self_approval, enforce_reviewer_role
 
 router = APIRouter()
 
@@ -129,6 +129,9 @@ async def decide_approval(
     if not req:
         raise HTTPException(status_code=404, detail="Approval request not found.")
 
+    # Server-side Authorization: Reviewer role check
+    enforce_reviewer_role(current_user)
+
     # Governance rule: Requesting agent/actor cannot approve its own action
     enforce_not_self_approval(req.requested_by, current_user.user_id)
 
@@ -206,7 +209,7 @@ async def compare_evaluation_runs(
 # --- Dashboard Metrics ---
 @router.get("/metrics/dashboard", response_model=DashboardMetricsResponse, tags=["Dashboard"])
 async def get_dashboard_metrics(db: AsyncSession = Depends(get_db)):
-    # Total runs
+    # Total runs (all states)
     total_res = await db.execute(select(func.count(AgentRun.id)))
     total_runs = total_res.scalar() or 0
 
@@ -219,7 +222,10 @@ async def get_dashboard_metrics(db: AsyncSession = Depends(get_db)):
     waiting_res = await db.execute(select(func.count(AgentRun.id)).where(AgentRun.status == RunStatus.WAITING_APPROVAL.value))
     waiting_approval_runs = waiting_res.scalar() or 0
 
-    success_rate = round((successful_runs / total_runs * 100.0), 2) if total_runs > 0 else 0.0
+    # Decided denominator: Completed + Failed (terminal runs)
+    # Pending approvals are still awaiting review and should not penalize or inflate terminal success rate.
+    terminal_runs = successful_runs + failed_runs
+    success_rate = round((successful_runs / terminal_runs * 100.0), 2) if terminal_runs > 0 else 0.0
 
     avg_lat_res = await db.execute(select(func.avg(AgentRun.duration_ms)).where(AgentRun.duration_ms.isnot(None)))
     avg_latency = round(avg_lat_res.scalar() or 0.0, 2)
@@ -266,29 +272,48 @@ async def get_dashboard_metrics(db: AsyncSession = Depends(get_db)):
 @router.post("/demo/seed", tags=["System"])
 async def seed_demo_data(db: AsyncSession = Depends(get_db)):
     eval_runner = EvaluationRunner(db)
-    await eval_runner.ensure_default_dataset()
+    dataset = await eval_runner.ensure_default_dataset()
     
-    # Run an initial evaluation suite to have real evaluation metrics
-    eval_run = await eval_runner.run_evaluation_suite(agent_version="1.0.0", run_label="Baseline Release v1.0.0")
+    # Check if demo data was already seeded to guarantee idempotency
+    demo_check_stmt = select(func.count(AgentRun.id)).where(AgentRun.is_demo.is_(True))
+    demo_count_res = await db.execute(demo_check_stmt)
+    demo_count = demo_count_res.scalar() or 0
 
-    # Run sample agent tasks
-    engine = AgentExecutionEngine(db)
-    sample_inputs = [
-        ("Calculate multiply 45 and 18", False),
-        ("Check health of payment-gateway", False),
-        ("Create an incident ticket for database downtime", False)
-    ]
-    for prompt, is_demo in sample_inputs:
-        run = AgentRun(
-            correlation_id=str(uuid.uuid4()),
-            agent_name="VirarEngineAgent",
-            agent_version="1.0.0",
-            execution_mode="deterministic",
-            task_input=prompt,
-            is_demo=True
-        )
-        db.add(run)
-        await db.commit()
-        await engine.execute_run(run)
+    eval_runs_check_stmt = select(func.count(EvaluationRun.id)).where(EvaluationRun.dataset_id == dataset.id)
+    eval_count_res = await db.execute(eval_runs_check_stmt)
+    eval_count = eval_count_res.scalar() or 0
 
-    return {"message": "Demo data and baseline evaluations successfully seeded."}
+    if demo_count > 0 and eval_count > 0:
+        return {
+            "message": "Demo data already exists. Idempotent call; no duplicate demo data created.",
+            "seeded": False,
+            "existing_demo_runs": demo_count
+        }
+
+    # Run baseline evaluation suite if not present
+    if eval_count == 0:
+        await eval_runner.run_evaluation_suite(agent_version="1.0.0", run_label="Baseline Release v1.0.0")
+
+    # Run sample agent tasks if not present
+    if demo_count == 0:
+        engine = AgentExecutionEngine(db)
+        sample_inputs = [
+            ("Calculate multiply 45 and 18", "seed-demo-calc-45-18"),
+            ("Check health of payment-gateway", "seed-demo-health-payment"),
+            ("Create an incident ticket for database downtime", "seed-demo-incident-db")
+        ]
+        for prompt, key in sample_inputs:
+            run = AgentRun(
+                correlation_id=str(uuid.uuid4()),
+                agent_name="VirarEngineAgent",
+                agent_version="1.0.0",
+                execution_mode="deterministic",
+                task_input=prompt,
+                idempotency_key=key,
+                is_demo=True
+            )
+            db.add(run)
+            await db.commit()
+            await engine.execute_run(run)
+
+    return {"message": "Demo data and baseline evaluations successfully seeded.", "seeded": True}

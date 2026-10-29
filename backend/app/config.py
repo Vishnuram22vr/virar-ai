@@ -1,8 +1,10 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 import os
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
+
     PROJECT_NAME: str = "Virar AI"
     APP_ENV: str = "development"
     DEBUG: bool = True
@@ -41,9 +43,5 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "deterministic" # "deterministic" | "openai" | "gemini" | "anthropic"
     LLM_API_KEY: Optional[str] = None
     LLM_MODEL: str = "virar-deterministic-v1"
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
 
 settings = Settings()

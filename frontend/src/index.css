@@ -135,12 +135,17 @@ body {
   transition: opacity 0.15s ease;
 }
 
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .btn-primary {
   background: linear-gradient(135deg, #3b82f6, #6366f1);
   color: white;
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   opacity: 0.9;
 }
 
@@ -160,7 +165,7 @@ body {
   border: 1px solid var(--border-color);
 }
 
-.btn-secondary:hover {
+.btn-secondary:hover:not(:disabled) {
   background-color: var(--bg-hover);
 }
 
@@ -195,7 +200,7 @@ body {
 
 .stat-subtext {
   font-size: 0.8rem;
-  color: var(--accent-green);
+  color: var(--text-muted);
   margin-top: 6px;
 }
 
@@ -252,6 +257,7 @@ tr:hover {
 .badge-warning { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
 .badge-info { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
 .badge-purple { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+.badge-secondary { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
 
 .trace-timeline {
   display: flex;
@@ -264,6 +270,14 @@ tr:hover {
   border-left: 2px solid #3b82f6;
   padding-left: 16px;
   position: relative;
+}
+
+.trace-step.trace-step-failure {
+  border-left-color: #ef4444;
+}
+
+.trace-step.trace-step-failure::before {
+  background-color: #ef4444;
 }
 
 .trace-step::before {
@@ -294,6 +308,7 @@ tr:hover {
   font-family: monospace;
   font-size: 0.8rem;
   overflow-x: auto;
+  line-height: 1.5;
 }
 
 .input-box {
@@ -310,4 +325,42 @@ tr:hover {
 .input-box:focus {
   outline: none;
   border-color: #3b82f6;
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+}
+
+.empty-state-icon {
+  margin-bottom: 12px;
+  opacity: 0.6;
+}
+
+.empty-state-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 6px;
+}
+
+.empty-state-desc {
+  font-size: 0.85rem;
+  max-width: 400px;
+  margin: 0 auto;
 }

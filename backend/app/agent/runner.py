@@ -129,6 +129,15 @@ class AgentExecutionEngine:
             except Exception:
                 pass
 
+        # Explicit detection for dangerous/unregistered command injection attempts in plain text
+        if not planned_actions:
+            if "bash_terminal" in text or "bash" in text and "command" in text:
+                planned_actions.append(("bash_terminal", {"command": "blocked_attempt"}))
+            elif "python_eval" in text or "eval" in text and ("code" in text or "python" in text):
+                planned_actions.append(("python_eval", {"code": "blocked_attempt"}))
+            elif "execute_shell" in text:
+                planned_actions.append(("execute_shell", {"command": "blocked_attempt"}))
+
         return planned_actions
 
     async def execute_run(self, run: AgentRun) -> AgentRun:
